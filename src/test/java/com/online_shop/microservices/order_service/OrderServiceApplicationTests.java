@@ -1,53 +1,60 @@
 package com.online_shop.microservices.order_service;
 
+import com.online_shop.microservices.order_service.stubs.InventoryClientStub;
 import io.restassured.RestAssured;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.testcontainers.containers.MongoDBContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.cloud.contract.wiremock.AutoConfigureWireMock;
+import org.testcontainers.containers.MySQLContainer;
 
-import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
+@AutoConfigureWireMock(port = 0)
 class OrderServiceApplicationTests {
 
-	@Container
-	static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:7.0.5");
-
+	@ServiceConnection
+	static MySQLContainer mySQLContainer = new MySQLContainer("mysql:8.3.0");
 	@LocalServerPort
 	private Integer port;
 
 	@BeforeEach
-	void setUp() {
+	void setup() {
 		RestAssured.baseURI = "http://localhost";
 		RestAssured.port = port;
 	}
 
 	static {
-		mongoDBContainer.start();
+		mySQLContainer.start();
 	}
 
 	@Test
-	void shouldPlaceOrder() {
-		String requestBody = """
+	void shouldSubmitOrder() {
+		String submitOrderJson = """
                 {
-                    "skuCode": "iphone_15",
-                    "price": 1000,
-                    "quantity": 1
+                     "skuCode": "iphone_15",
+                     "price": 1000,
+                     "quantity": 1
                 }
                 """;
 
-		RestAssured.given()
+		InventoryClientStub.stubInventoryCall("iphone_15", 1);
+
+		var responseBodyString = RestAssured.given()
 				.contentType("application/json")
-				.body(requestBody)
+				.body(submitOrderJson)
 				.when()
 				.post("/api/orders")
 				.then()
+				.log().all()
 				.statusCode(201)
-				.body(equalTo("Order placed successfully")); // Testet den String-Response
+				.extract()
+				.body().asString();
+
+		assertThat(responseBodyString, Matchers.is("Order placed successfully"));
 	}
 }
